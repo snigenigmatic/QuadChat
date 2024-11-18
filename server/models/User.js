@@ -1,136 +1,93 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const crypto = require('crypto');
 
 const userSchema = new mongoose.Schema({
+  name: {
+    type: String,
+    required: true,
+    trim: true
+  },
   email: {
     type: String,
-    required: [true, 'Email is required'],
+    required: true,
     unique: true,
     trim: true,
     lowercase: true
   },
   password: {
     type: String,
-    required: [true, 'Password is required'],
-    minlength: [8, 'Password must be at least 8 characters long'],
-    select: false // Don't return password in queries by default
+    required: true,
+    select: false
   },
-  name: {
+  status: {
     type: String,
-    required: [true, 'Name is required'],
-    trim: true,
-    minlength: [2, 'Name must be at least 2 characters long']
-  },
-  avatar: {
-    type: String,
-    default: ''
-  },
-  role: {
-    type: String,
-    enum: ['user', 'admin'],
-    default: 'user'
+    enum: ['online', 'offline', 'away'],
+    default: 'offline'
   },
   tokens: [{
     token: {
       type: String,
       required: true
     },
-    expiresAt: {
+    createdAt: {
       type: Date,
-      required: true
+      default: Date.now
     }
-  }],
-  lastLogin: Date,
-  loginAttempts: {
-    type: Number,
-    default: 0
-  },
-  lockUntil: Date,
-  status: {
-    type: String,
-    enum: ['active', 'suspended', 'deleted'],
-    default: 'active'
-  }
+  }]
 }, {
   timestamps: true
 });
 
-// Index for better query performance
-userSchema.index({ email: 1 });
-userSchema.index({ status: 1 });
-
 // Hash password before saving
 userSchema.pre('save', async function(next) {
-  if (!this.isModified('password')) return next();
-
-  try {
-    const salt = await bcrypt.genSalt(12);
-    this.password = await bcrypt.hash(this.password, salt);
-    next();
-  } catch (error) {
-    next(error);
+  const user = this;
+  if (user.isModified('password')) {
+    user.password = await bcrypt.hash(user.password, 10);
   }
+  next();
 });
 
 // Generate auth token
 userSchema.methods.generateAuthToken = async function() {
+  const user = this;
+  
+  // Create token
   const token = jwt.sign(
-    { userId: this._id },
+    { 
+      userId: user._id.toString(),
+      email: user.email 
+    },
     process.env.JWT_SECRET,
     { expiresIn: '7d' }
   );
 
-  const expiresAt = new Date();
-  expiresAt.setDate(expiresAt.getDate() + 7);
-
-  this.tokens = this.tokens || [];
-  this.tokens.push({
+  // Add token to user's tokens array
+  user.tokens = user.tokens.concat({ 
     token,
-    expiresAt
+    createdAt: new Date()
   });
-
-  await this.save();
+  
+  await user.save();
   return token;
 };
 
 // Compare password
 userSchema.methods.comparePassword = async function(candidatePassword) {
-  if (!this.password) {
-    throw new Error('Password not found in user document');
-  }
-  return bcrypt.compare(candidatePassword, this.password);
+  const user = this;
+  return bcrypt.compare(candidatePassword, user.password);
 };
 
-// Check if account is locked
-userSchema.methods.isLocked = function() {
-  return this.lockUntil && this.lockUntil > Date.now();
+// Clean up expired tokens
+userSchema.methods.cleanExpiredTokens = async function() {
+  const user = this;
+  const now = new Date();
+  const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  
+  user.tokens = user.tokens.filter(token => token.createdAt > sevenDaysAgo);
+  await user.save();
 };
 
-// Increment login attempts
-userSchema.methods.incrementLoginAttempts = async function() {
-  // Reset attempts if lock has expired
-  if (this.lockUntil && this.lockUntil < Date.now()) {
-    this.loginAttempts = 1;
-    this.lockUntil = undefined;
-  } else {
-    this.loginAttempts += 1;
-    
-    // Lock account if too many attempts
-    if (this.loginAttempts >= 5 && !this.isLocked()) {
-      this.lockUntil = Date.now() + 60 * 60 * 1000; // 1 hour
-    }
-  }
-  return this.save();
-};
+const User = mongoose.model('User', userSchema);
 
-// Remove sensitive fields when converting to JSON
-userSchema.methods.toJSON = function() {
-  const user = this.toObject();
-  delete user.password;
-  delete user.tokens;
-  return user;
-};
-
-module.exports = mongoose.model('User', userSchema);
+module.exports = User;

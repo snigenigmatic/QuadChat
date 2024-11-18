@@ -1,22 +1,29 @@
 import React from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 
 const ProtectedRoute = ({ children }) => {
   const { user, loading } = useAuth();
+  const location = useLocation();
+
+  console.log('Protected Route - Current location:', location.pathname);
+  console.log('Protected Route - Auth state:', { user, loading });
 
   if (loading) {
+    console.log('Protected Route - Still loading auth state');
     return (
-      <div className="h-screen flex items-center justify-center bg-white dark:bg-gray-900">
+      <div className="min-h-screen flex items-center justify-center bg-white dark:bg-gray-900">
         <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-500 border-t-transparent"></div>
       </div>
     );
   }
 
   if (!user) {
-    return <Navigate to="/auth" />;
+    console.log('Protected Route - No user, redirecting to auth');
+    return <Navigate to="/auth" state={{ from: location }} replace />;
   }
 
+  console.log('Protected Route - User authenticated, rendering children');
   return children;
 };
 

@@ -2,73 +2,107 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 
 const AuthContext = createContext();
 
-export const useAuth = () => useContext(AuthContext);
+export const useAuth = () => {
+  return useContext(AuthContext);
+};
 
-export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null);
-  const [token, setToken] = useState(localStorage.getItem('token'));
+export function AuthProvider({ children }) {
+  const [currentUser, setCurrentUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
-    const initAuth = async () => {
-      if (token) {
-        try {
-          const response = await fetch(`${import.meta.env.VITE_API_URL}/api/auth/me`, {
-            headers: {
-              'Authorization': `Bearer ${token}`
-            }
-          });
+    checkAuth();
+  }, []);
 
-          if (response.ok) {
-            const data = await response.json();
-            setUser(data.data.user);
-          } else {
-            // Token is invalid
-            localStorage.removeItem('token');
-            setToken(null);
-            setUser(null);
-          }
-        } catch (error) {
-          console.error('Auth initialization error:', error);
-          localStorage.removeItem('token');
-          setToken(null);
-          setUser(null);
-        }
-      }
-      setLoading(false);
-    };
-
-    initAuth();
-  }, [token]);
-
-  const register = async (email, password, name) => {
+  const checkAuth = async () => {
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/auth/register`, {
-        method: 'POST',
+      const token = localStorage.getItem('token');
+      if (!token) {
+        setLoading(false);
+        return;
+      }
+
+      const response = await fetch('/api/auth/me', {
         headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ email, password, name })
+          'Authorization': `Bearer ${token}`
+        }
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || 'Registration failed');
+        const errorData = await response.json();
+        console.error('Auth check failed:', errorData);
+        localStorage.removeItem('token');
+        setCurrentUser(null);
+        setLoading(false);
+        return;
       }
 
       const data = await response.json();
-      localStorage.setItem('token', data.data.token);
-      setToken(data.data.token);
-      setUser(data.data.user);
-      return data.data;
+      console.log('Auth check response:', data);
+
+      if (data.status === 'success' && data.data?.user) {
+        setCurrentUser(data.data.user);
+      } else {
+        localStorage.removeItem('token');
+        setCurrentUser(null);
+      }
     } catch (error) {
-      throw error;
+      console.error('Auth check error:', error);
+      localStorage.removeItem('token');
+      setCurrentUser(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const updateUserStatus = async (status) => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        console.error('No token available for status update');
+        return;
+      }
+
+      const response = await fetch('/api/auth/status', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ status })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error('Failed to update status:', errorData);
+        if (response.status === 401) {
+          // Token might be invalid
+          localStorage.removeItem('token');
+          setCurrentUser(null);
+        }
+        return;
+      }
+
+      const data = await response.json();
+      
+      // Update user status in context if needed
+      if (currentUser) {
+        setCurrentUser(prev => ({
+          ...prev,
+          status: data.data.status
+        }));
+      }
+
+      return data;
+    } catch (error) {
+      console.error('Error updating status:', error);
     }
   };
 
   const login = async (email, password) => {
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/auth/login`, {
+      const response = await fetch('/api/auth/login', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -76,25 +110,39 @@ export const AuthProvider = ({ children }) => {
         body: JSON.stringify({ email, password })
       });
 
+      const data = await response.json();
+      console.log('Login response:', data);
+
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || 'Login failed');
+        throw new Error(data.message || 'Login failed');
       }
 
-      const data = await response.json();
-      localStorage.setItem('token', data.data.token);
-      setToken(data.data.token);
-      setUser(data.data.user);
-      return data.data;
+      if (data.status === 'success' && data.data?.token) {
+        const token = data.data.token;
+        localStorage.setItem('token', token);
+        setCurrentUser(data.data.user);
+        
+        // Don't wait for status update
+        updateUserStatus('online').catch(console.error);
+        return true;
+      } else {
+        throw new Error(data.message || 'Invalid response format');
+      }
     } catch (error) {
-      throw error;
+      console.error('Login error:', error);
+      setError(error.message || 'An error occurred during login');
+      return false;
     }
   };
 
   const logout = async () => {
     try {
+      const token = localStorage.getItem('token');
       if (token) {
-        await fetch(`${import.meta.env.VITE_API_URL}/api/auth/logout`, {
+        // Update status to offline before logging out
+        await updateUserStatus('offline');
+        
+        await fetch('/api/auth/logout', {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${token}`
@@ -105,18 +153,17 @@ export const AuthProvider = ({ children }) => {
       console.error('Logout error:', error);
     } finally {
       localStorage.removeItem('token');
-      setToken(null);
-      setUser(null);
+      setCurrentUser(null);
     }
   };
 
   const value = {
-    user,
-    token,
+    currentUser,
     loading,
-    register,
+    error,
     login,
-    logout
+    logout,
+    updateUserStatus
   };
 
   return (
@@ -124,6 +171,4 @@ export const AuthProvider = ({ children }) => {
       {children}
     </AuthContext.Provider>
   );
-};
-
-export default AuthContext;
+}

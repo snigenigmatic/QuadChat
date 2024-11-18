@@ -3,7 +3,16 @@ const User = require('../models/User');
 
 const auth = async (req, res, next) => {
   try {
-    const token = req.header('Authorization')?.replace('Bearer ', '');
+    const authHeader = req.header('Authorization');
+
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ 
+        status: 'error',
+        message: 'Invalid Authorization header format' 
+      });
+    }
+
+    const token = authHeader.replace('Bearer ', '');
     
     if (!token) {
       return res.status(401).json({ 
@@ -14,24 +23,39 @@ const auth = async (req, res, next) => {
 
     try {
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
       const user = await User.findOne({ 
         _id: decoded.userId,
         'tokens.token': token 
-      }).select('-password');
+      });
 
       if (!user) {
-        throw new Error();
+        throw new Error('User not found');
       }
 
-      // Check token expiration
+      // Check token age
       const tokenData = user.tokens.find(t => t.token === token);
-      if (tokenData && tokenData.expiresAt < new Date()) {
+      if (!tokenData) {
+        throw new Error('Token not found');
+      }
+
+      const now = new Date();
+      const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      
+      if (tokenData.createdAt < sevenDaysAgo) {
+        // Remove expired token
         await User.updateOne(
           { _id: user._id },
           { $pull: { tokens: { token } } }
         );
         throw new Error('Token expired');
       }
+
+      // Clean up old tokens
+      await User.updateOne(
+        { _id: user._id },
+        { $pull: { tokens: { createdAt: { $lt: sevenDaysAgo } } } }
+      );
 
       req.user = user;
       req.token = token;
@@ -45,6 +69,7 @@ const auth = async (req, res, next) => {
       });
     }
   } catch (error) {
+    console.error('Auth Middleware - Server error:', error);
     res.status(500).json({ 
       status: 'error',
       message: 'Server error during authentication'
@@ -56,16 +81,16 @@ const auth = async (req, res, next) => {
 const authorize = (...roles) => {
   return (req, res, next) => {
     if (!req.user) {
-      return res.status(401).json({ 
+      return res.status(401).json({
         status: 'error',
-        message: 'Authentication required' 
+        message: 'Authentication required'
       });
     }
 
     if (!roles.includes(req.user.role)) {
-      return res.status(403).json({ 
+      return res.status(403).json({
         status: 'error',
-        message: 'Access forbidden' 
+        message: 'Not authorized to access this resource'
       });
     }
 
