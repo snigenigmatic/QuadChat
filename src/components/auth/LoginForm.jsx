@@ -24,39 +24,50 @@ const LoginForm = () => {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-6">
       <div>
-        <label className="block mb-1">Email</label>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+          Email Address
+        </label>
         <input
           type="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          className="w-full p-2 rounded border"
+          className="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 transition-colors duration-200"
+          placeholder="Enter your email"
           required
         />
       </div>
       <div>
-        <label className="block mb-1">Password</label>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+          Password
+        </label>
         <input
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          className="w-full p-2 rounded border"
+          className="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 transition-colors duration-200"
+          placeholder="Enter your password"
           required
         />
       </div>
-      <button type="submit" className="w-full bg-blue-500 text-white p-2 rounded">
-        {isLogin ? 'Login' : 'Register'}
-      </button>
-      <p className="text-center">
+      <div className="pt-2">
+        <button
+          type="submit"
+          className="w-full bg-gradient-to-r from-blue-600 to-blue-400 hover:from-blue-700 hover:to-blue-500 text-white font-semibold py-3 px-4 rounded-lg shadow-md hover:shadow-lg transform hover:scale-[1.02] transition-all duration-200"
+        >
+          {isLogin ? 'Sign In' : 'Create Account'}
+        </button>
+      </div>
+      <div className="text-center mt-6">
         <button
           type="button"
           onClick={() => setIsLogin(!isLogin)}
-          className="text-blue-500"
+          className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 transition-colors duration-200"
         >
-          {isLogin ? 'Need an account? Register' : 'Have an account? Login'}
+          {isLogin ? 'Need an account? Sign up' : 'Already have an account? Sign in'}
         </button>
-      </p>
+      </div>
     </form>
   )
 }
