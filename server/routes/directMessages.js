@@ -1,5 +1,5 @@
 const express = require('express');
-const auth = require('../middleware/auth');
+const { auth } = require('../middleware/auth');
 const DirectMessage = require('../models/DirectMessage');
 const User = require('../models/User');
 
@@ -56,9 +56,16 @@ router.get('/conversations', auth, async (req, res) => {
       }
     ]);
 
-    res.json(conversations);
+    res.json({
+      status: 'success',
+      data: { conversations }
+    });
   } catch (error) {
-    res.status(500).json({ message: 'Error fetching conversations' });
+    res.status(500).json({ 
+      status: 'error',
+      message: 'Error fetching conversations',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
 
@@ -86,9 +93,16 @@ router.get('/messages/:userId', auth, async (req, res) => {
       { read: true }
     );
 
-    res.json(messages.reverse());
+    res.json({
+      status: 'success',
+      data: { messages: messages.reverse() }
+    });
   } catch (error) {
-    res.status(500).json({ message: 'Error fetching messages' });
+    res.status(500).json({ 
+      status: 'error',
+      message: 'Error fetching messages',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
 
@@ -99,7 +113,10 @@ router.post('/messages/:userId', auth, async (req, res) => {
     const recipient = await User.findById(req.params.userId);
 
     if (!recipient) {
-      return res.status(404).json({ message: 'Recipient not found' });
+      return res.status(404).json({
+        status: 'error',
+        message: 'Recipient not found'
+      });
     }
 
     const message = new DirectMessage({
@@ -116,9 +133,16 @@ router.post('/messages/:userId', auth, async (req, res) => {
     await message.populate('sender', 'name email');
     await message.populate('recipient', 'name email');
 
-    res.status(201).json(message);
+    res.status(201).json({
+      status: 'success',
+      data: { message }
+    });
   } catch (error) {
-    res.status(500).json({ message: 'Error sending message' });
+    res.status(500).json({ 
+      status: 'error',
+      message: 'Error sending message',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
 
@@ -130,9 +154,16 @@ router.get('/unread', auth, async (req, res) => {
       read: false
     });
 
-    res.json({ unreadCount });
+    res.json({
+      status: 'success',
+      data: { unreadCount }
+    });
   } catch (error) {
-    res.status(500).json({ message: 'Error fetching unread count' });
+    res.status(500).json({ 
+      status: 'error',
+      message: 'Error fetching unread count',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
 

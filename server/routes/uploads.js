@@ -2,7 +2,7 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
-const auth = require('../middleware/auth');
+const { auth } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -51,17 +51,30 @@ const upload = multer({
 router.post('/', auth, upload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
-      return res.status(400).json({ message: 'No file uploaded' });
+      return res.status(400).json({
+        status: 'error',
+        message: 'No file uploaded'
+      });
     }
 
-    const fileUrl = `/uploads/${req.file.filename}`;
-    res.json({
-      fileUrl,
-      fileName: req.file.originalname,
-      fileSize: req.file.size
+    res.status(201).json({
+      status: 'success',
+      data: {
+        file: {
+          filename: req.file.filename,
+          originalname: req.file.originalname,
+          mimetype: req.file.mimetype,
+          size: req.file.size,
+          path: `/uploads/${req.file.filename}`
+        }
+      }
     });
   } catch (error) {
-    res.status(500).json({ message: 'Error uploading file' });
+    res.status(500).json({
+      status: 'error',
+      message: 'Error uploading file',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
 
