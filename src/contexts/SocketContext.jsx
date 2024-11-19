@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
+import React, { createContext, useContext, useRef, useEffect, useState } from 'react';
 import io from 'socket.io-client';
 import { useAuth } from './AuthContext';
 
@@ -6,78 +6,115 @@ const SocketContext = createContext();
 
 export const useSocket = () => useContext(SocketContext);
 
-// Create a single socket instance outside the component
-let globalSocket = null;
-
 export const SocketProvider = ({ children }) => {
-  const [socket, setSocket] = useState(null);
-  const { currentUser: user } = useAuth();
-  const token = localStorage.getItem('token');
-  const socketInitialized = useRef(false);
+  const { currentUser } = useAuth();
+  const socketRef = useRef(null);
+  const [isConnected, setIsConnected] = useState(false);
 
-  const initializeSocket = () => {
-    if (!user || !token || socketInitialized.current || globalSocket) {
+  useEffect(() => {
+    if (!currentUser) {
+      console.log('No user, not connecting socket');
+      if (socketRef.current) {
+        console.log('Cleaning up existing socket due to user logout');
+        socketRef.current.removeAllListeners();
+        socketRef.current.close();
+        socketRef.current = null;
+        setIsConnected(false);
+      }
       return;
     }
 
-    const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-    console.log('Initializing socket connection...');
+    if (socketRef.current?.connected) {
+      console.log('Socket already connected, skipping connection');
+      return;
+    }
 
-    globalSocket = io(baseUrl, {
-      auth: { token },
+    const SOCKET_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+    console.log('Connecting to socket at:', SOCKET_URL);
+
+    // Socket.IO connection config
+    const socket = io(SOCKET_URL, {
+      auth: {
+        token: localStorage.getItem('token')
+      },
+      query: {
+        userId: currentUser._id,
+        userName: currentUser.name
+      },
+      transports: ['websocket'],
       reconnection: true,
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      timeout: 20000,
     });
 
-    globalSocket.on('connect', () => {
-      console.log('Socket connected successfully');
-      setSocket(globalSocket);
-      socketInitialized.current = true;
+    socketRef.current = socket;
+
+    socket.on('connect', () => {
+      console.log('Socket connected:', socket.id);
+      setIsConnected(true);
     });
 
-    globalSocket.on('connect_error', (error) => {
-      console.error('Socket connection error:', error.message);
-      if (error.message.includes('Authentication error')) {
-        console.error('Socket authentication failed');
-        cleanupSocket();
-      }
+    socket.on('connect_error', (error) => {
+      console.error('Socket connection error:', error);
+      setIsConnected(false);
     });
 
-    globalSocket.on('disconnect', (reason) => {
+    socket.on('disconnect', (reason) => {
       console.log('Socket disconnected:', reason);
-      if (reason === 'io server disconnect' || reason === 'io client disconnect') {
-        cleanupSocket();
+      setIsConnected(false);
+      if (reason === 'io server disconnect') {
+        socket.connect();
       }
     });
-  };
 
-  const cleanupSocket = () => {
-    if (globalSocket) {
-      console.log('Cleaning up socket connection');
-      globalSocket.disconnect();
-      globalSocket = null;
-      setSocket(null);
-      socketInitialized.current = false;
-    }
-  };
+    socket.on('reconnect', (attemptNumber) => {
+      console.log('Socket reconnected after', attemptNumber, 'attempts');
+      setIsConnected(true);
+    });
 
-  useEffect(() => {
-    if (user && token) {
-      initializeSocket();
-    } else {
-      cleanupSocket();
-    }
+    socket.on('reconnect_attempt', (attemptNumber) => {
+      console.log('Socket reconnection attempt:', attemptNumber);
+    });
+
+    socket.on('reconnect_error', (error) => {
+      console.error('Socket reconnection error:', error);
+      setIsConnected(false);
+    });
+
+    socket.on('reconnect_failed', () => {
+      console.error('Socket reconnection failed');
+      setIsConnected(false);
+    });
 
     return () => {
-      if (!user || !token) {
-        cleanupSocket();
+      if (socket && !currentUser) {
+        console.log('Cleaning up socket connection on unmount');
+        socket.removeAllListeners();
+        socket.close();
+        socketRef.current = null;
+        setIsConnected(false);
       }
     };
-  }, [user, token]);
+  }, [currentUser]);
+
+  const cleanupSocket = () => {
+    if (socketRef.current) {
+      console.log('Manual socket cleanup initiated');
+      socketRef.current.removeAllListeners();
+      socketRef.current.close();
+      socketRef.current = null;
+      setIsConnected(false);
+    }
+  };
 
   return (
-    <SocketContext.Provider value={{ socket, cleanupSocket }}>
+    <SocketContext.Provider value={{ 
+      socket: socketRef.current, 
+      cleanupSocket,
+      isConnected 
+    }}>
       {children}
     </SocketContext.Provider>
   );

@@ -86,7 +86,6 @@ export function AuthProvider({ children }) {
     try {
       const token = localStorage.getItem('token');
       if (token) {
-        // Call the logout endpoint if it exists
         try {
           await fetch(`${baseUrl}/api/auth/logout`, {
             method: 'POST',
@@ -99,13 +98,11 @@ export function AuthProvider({ children }) {
         }
       }
       
-      // Clear local storage and state regardless of server response
       localStorage.removeItem('token');
       setCurrentUser(null);
       setError(null);
     } catch (error) {
       console.error('Error during logout:', error);
-      // Still clear local data even if there's an error
       localStorage.removeItem('token');
       setCurrentUser(null);
     }

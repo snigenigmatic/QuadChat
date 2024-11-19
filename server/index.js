@@ -7,8 +7,8 @@ const morgan = require('morgan');
 const helmet = require('helmet');
 const compression = require('compression');
 const { Server } = require('socket.io');
+const jwt = require('jsonwebtoken');
 const { auth } = require('./middleware/auth');
-const socketAuth = require('./middleware/socketAuth');
 const { apiLimiter } = require('./middleware/rateLimiter');
 const DirectMessage = require('./models/DirectMessage');
 const User = require('./models/User');
@@ -24,10 +24,16 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: process.env.CLIENT_URL || 'http://localhost:5174',
-    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    origin: process.env.CLIENT_URL || 'http://localhost:5173',
+    methods: ['GET', 'POST'],
     credentials: true
-  }
+  },
+  pingTimeout: 60000,
+  pingInterval: 25000,
+  transports: ['websocket'],
+  allowEIO3: true,
+  connectTimeout: 45000,
+  maxHttpBufferSize: 1e8 // 100 MB
 });
 
 // Store connected users and general room ID
@@ -115,80 +121,94 @@ mongoose.connect(process.env.MONGODB_URI)
     process.exit(1);
   });
 
-// Socket authentication middleware
-io.use(socketAuth);
-
-// Initialize general room
-initializeGeneralRoom();
-
-// Socket.IO event handlers
-io.on('connection', async (socket) => {
-  const userId = socket.user._id;
-  const user = await User.findById(userId).select('name email status');
-  
-  console.log(` User connected: ${user.name} (${userId})`);
-  
-  // Add user to connected users
-  connectedUsers.set(userId, {
-    socketId: socket.id,
-    user: {
-      id: userId,
-      name: user.name,
-      email: user.email
+// Socket.IO middleware for authentication
+io.use(async (socket, next) => {
+  try {
+    const token = socket.handshake.auth.token;
+    if (!token) {
+      throw new Error('Authentication token missing');
     }
-  });
 
-  // Update user status to online
-  await User.findByIdAndUpdate(userId, { status: 'online' });
-
-  // Add user to general room if not already a participant
-  if (generalRoomId) {
-    const generalRoom = await Room.findById(generalRoomId);
-    if (generalRoom && !generalRoom.participants.includes(userId)) {
-      generalRoom.participants.push(userId);
-      await generalRoom.save();
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const user = await User.findById(decoded.userId);
+    
+    if (!user) {
+      throw new Error('User not found');
     }
+
+    // Attach user to socket
+    socket.user = user;
+    next();
+  } catch (error) {
+    console.error('Socket authentication error:', error.message);
+    next(new Error('Authentication error'));
   }
+});
 
-  // Broadcast updated online users list
-  const onlineUsers = Array.from(connectedUsers.values()).map(({ user }) => user);
-  console.log(' Current online users:', onlineUsers.map(u => u.name).join(', '));
-  io.emit('onlineUsers', onlineUsers);
+// Socket.IO connection handling
+io.on('connection', async (socket) => {
+  try {
+    const { user } = socket;
+    console.log(`[Socket ${socket.id}] User connected: ${user.name} (${user._id})`);
 
-  // Handle new messages
-  socket.on('sendMessage', async (messageData, callback) => {
-    try {
-      const { text, timestamp } = messageData;
+    // Add user to connected users map
+    connectedUsers.set(user._id.toString(), {
+      socketId: socket.id,
+      userId: user._id,
+      userName: user.name,
+      _id: user._id // Add _id for client-side filtering
+    });
+
+    // Broadcast updated online users list to all clients
+    const onlineUsersList = Array.from(connectedUsers.values()).map(u => ({
+      _id: u.userId,
+      name: u.userName
+    }));
+    io.emit('onlineUsers', onlineUsersList);
+
+    // Log connected users
+    console.log('[Connected Users]', Array.from(connectedUsers.values()).map(u => u.userName).join(', '));
+
+    // Handle disconnection
+    socket.on('disconnect', (reason) => {
+      console.log(`[Socket ${socket.id}] User disconnected: ${user.name} (${user._id}), reason: ${reason}`);
+      connectedUsers.delete(user._id.toString());
       
-      // Create and save message
-      const message = new Message({
-        content: text,
-        sender: userId,
-        room: generalRoomId, // Use the general room ID
-        messageType: 'text',
-        createdAt: timestamp
-      });
-      await message.save();
+      // Broadcast updated online users list after disconnect
+      const onlineUsersList = Array.from(connectedUsers.values()).map(u => ({
+        _id: u.userId,
+        name: u.userName
+      }));
+      io.emit('onlineUsers', onlineUsersList);
+      
+      console.log('[Connected Users]', Array.from(connectedUsers.values()).map(u => u.userName).join(', '));
+    });
 
-      // Populate sender information
-      await message.populate('sender', 'name email');
+    // Handle errors
+    socket.on('error', (error) => {
+      console.error(`[Socket ${socket.id}] Error:`, error);
+    });
 
-      // Broadcast message to all users
-      io.emit('message', {
-        _id: message._id,
-        text: message.content,
-        sender: {
-          _id: message.sender._id,
-          name: message.sender.name,
-          email: message.sender.email
-        },
-        timestamp: message.createdAt
-      });
+    // Handle new messages
+    socket.on('sendMessage', async (messageData, callback) => {
+      try {
+        const { text, timestamp } = messageData;
+        
+        // Create and save message
+        const message = new Message({
+          content: text,
+          sender: user._id,
+          room: generalRoomId, // Use the general room ID
+          messageType: 'text',
+          createdAt: timestamp
+        });
+        await message.save();
 
-      // Send confirmation back to sender
-      callback({ 
-        status: 'success', 
-        data: {
+        // Populate sender information
+        await message.populate('sender', 'name email');
+
+        // Broadcast message to all users
+        io.emit('message', {
           _id: message._id,
           text: message.content,
           sender: {
@@ -197,111 +217,142 @@ io.on('connection', async (socket) => {
             email: message.sender.email
           },
           timestamp: message.createdAt
+        });
+
+        // Send confirmation back to sender
+        callback({ 
+          status: 'success', 
+          data: {
+            _id: message._id,
+            text: message.content,
+            sender: {
+              _id: message.sender._id,
+              name: message.sender.name,
+              email: message.sender.email
+            },
+            timestamp: message.createdAt
+          }
+        });
+      } catch (error) {
+        console.error('Error sending message:', error);
+        callback({ status: 'error', message: 'Failed to send message' });
+      }
+    });
+
+    // Handle message history request
+    socket.on('getMessages', async (callback) => {
+      try {
+        const messages = await Message.find({ room: generalRoomId })
+          .sort({ createdAt: 1 })
+          .populate('sender', 'name email')
+          .lean();
+
+        callback({
+          status: 'success',
+          data: messages.map(msg => ({
+            _id: msg._id,
+            text: msg.content,
+            sender: {
+              _id: msg.sender._id,
+              name: msg.sender.name,
+              email: msg.sender.email
+            },
+            timestamp: msg.createdAt
+          }))
+        });
+      } catch (error) {
+        console.error('Error getting messages:', error);
+        callback({ status: 'error', message: 'Failed to get messages' });
+      }
+    });
+
+    // Handle direct messages
+    socket.on('send_direct_message', async (messageData, callback) => {
+      try {
+        const { recipientId, text, timestamp } = messageData;
+        console.log(`[Socket ${socket.id}] Sending direct message from ${user.name} to ${recipientId}`);
+        
+        const recipient = connectedUsers.get(recipientId);
+        
+        // Create and save direct message
+        const directMessage = new DirectMessage({
+          content: text,
+          sender: user._id,
+          recipient: recipientId,
+          messageType: 'text',
+          createdAt: timestamp || new Date()
+        });
+        await directMessage.save();
+        console.log(`[Socket ${socket.id}] Message saved to database`);
+
+        // Populate sender information
+        await directMessage.populate('sender', 'name email');
+
+        const messageResponse = {
+          _id: directMessage._id,
+          text: directMessage.content,
+          sender: directMessage.sender._id,
+          recipient: recipientId,
+          timestamp: directMessage.createdAt
+        };
+
+        // Send to recipient if they're online
+        if (recipient) {
+          console.log(`[Socket ${socket.id}] Sending message to recipient socket ${recipient.socketId}`);
+          socket.to(recipient.socketId).emit('receive_direct_message', {
+            message: messageResponse
+          });
         }
-      });
-    } catch (error) {
-      console.error('Error sending message:', error);
-      callback({ status: 'error', message: 'Failed to send message' });
-    }
-  });
 
-  // Handle message history request
-  socket.on('getMessages', async (callback) => {
-    try {
-      const messages = await Message.find({ room: generalRoomId })
-        .sort({ createdAt: 1 })
-        .populate('sender', 'name email')
-        .lean();
-
-      callback({
-        status: 'success',
-        data: messages.map(msg => ({
-          _id: msg._id,
-          text: msg.content,
-          sender: {
-            _id: msg.sender._id,
-            name: msg.sender.name,
-            email: msg.sender.email
-          },
-          timestamp: msg.createdAt
-        }))
-      });
-    } catch (error) {
-      console.error('Error getting messages:', error);
-      callback({ status: 'error', message: 'Failed to get messages' });
-    }
-  });
-
-  // Handle direct messages
-  socket.on('direct_message', async (messageData) => {
-    try {
-      const { content, recipient, messageType, fileUrl, fileName, fileSize } = messageData;
-      
-      // Create new direct message
-      const newMessage = new DirectMessage({
-        sender: userId,
-        recipient,
-        content,
-        messageType,
-        fileUrl,
-        fileName,
-        fileSize
-      });
-
-      await newMessage.save();
-
-      // Populate sender info
-      await newMessage.populate('sender', 'name email');
-
-      // Send message to recipient if they're online
-      const recipientSocket = Array.from(io.sockets.sockets.values())
-        .find(s => s.user._id.toString() === recipient);
-
-      if (recipientSocket) {
-        recipientSocket.emit('receive_direct_message', {
-          message: newMessage,
-          sender: user
+        // Send confirmation back to sender
+        console.log(`[Socket ${socket.id}] Sending confirmation to sender`);
+        callback({
+          status: 'success',
+          data: messageResponse
+        });
+      } catch (error) {
+        console.error(`[Socket ${socket.id}] Error sending direct message:`, error);
+        callback({
+          status: 'error',
+          message: 'Failed to send direct message'
         });
       }
+    });
 
-      // Send acknowledgment back to sender
-      socket.emit('message_sent', {
-        status: 'success',
-        message: 'Message sent successfully',
-        data: newMessage
-      });
-    } catch (error) {
-      console.error('Error sending direct message:', error);
-      socket.emit('message_error', {
-        status: 'error',
-        message: 'Failed to send message'
-      });
-    }
-  });
+    // Handle typing status for direct messages
+    socket.on('typing_direct', ({ recipientId, isTyping }) => {
+      console.log(`[Socket ${socket.id}] Typing status from ${user.name} to ${recipientId}: ${isTyping}`);
+      try {
+        const recipient = connectedUsers.get(recipientId);
+        if (recipient) {
+          io.to(recipient.socketId).emit('typing_status', {
+            userId,
+            isTyping
+          });
+        }
+      } catch (error) {
+        console.error(`[Socket ${socket.id}] Error handling typing status:`, error);
+      }
+    });
 
-  // Handle typing status
-  socket.on('typing', ({ recipientId, isTyping }) => {
-    const recipient = connectedUsers.get(recipientId);
-    if (recipient) {
-      io.to(recipient.socketId).emit('typing_status', {
-        userId,
-        isTyping
-      });
-    }
-  });
-
-  // Handle disconnection
-  socket.on('disconnect', async () => {
-    console.log(` User disconnected: ${user.name} (${userId})`);
-    connectedUsers.delete(userId);
-    await User.findByIdAndUpdate(userId, { status: 'offline' });
-    
-    // Broadcast updated online users list
-    const updatedOnlineUsers = Array.from(connectedUsers.values()).map(({ user }) => user);
-    console.log(' Current online users:', updatedOnlineUsers.map(u => u.name).join(', '));
-    io.emit('onlineUsers', updatedOnlineUsers);
-  });
+    // Handle typing status
+    socket.on('typing', ({ recipientId, isTyping }) => {
+      const recipient = connectedUsers.get(recipientId);
+      if (recipient) {
+        io.to(recipient.socketId).emit('typing_status', {
+          userId,
+          isTyping
+        });
+      }
+    });
+  } catch (error) {
+    console.error('[Socket Connection Error]', error);
+    socket.disconnect(true);
+  }
 });
+
+// Initialize general room
+initializeGeneralRoom();
 
 // Error handling middleware
 app.use((err, req, res, next) => {

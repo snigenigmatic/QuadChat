@@ -22,20 +22,6 @@ const PrivateRoute = ({ children }) => {
   return currentUser ? children : <Navigate to="/auth" replace />;
 };
 
-const PublicRoute = ({ children }) => {
-  const { currentUser, loading } = useAuth();
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-white dark:bg-gray-900">
-        <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-500 border-t-transparent"></div>
-      </div>
-    );
-  }
-
-  return currentUser ? <Navigate to="/chat" replace /> : children;
-};
-
 const AppRoutes = () => {
   const { currentUser, loading } = useAuth();
 
@@ -49,24 +35,8 @@ const AppRoutes = () => {
 
   return (
     <Routes>
-      <Route
-        path="/"
-        element={
-          currentUser ? (
-            <Navigate to="/chat" replace />
-          ) : (
-            <Home />
-          )
-        }
-      />
-      <Route
-        path="/auth"
-        element={
-          <PublicRoute>
-            <Auth />
-          </PublicRoute>
-        }
-      />
+      <Route path="/" element={<Home />} />
+      <Route path="/auth" element={currentUser ? <Navigate to="/chat" replace /> : <Auth />} />
       <Route
         path="/chat"
         element={

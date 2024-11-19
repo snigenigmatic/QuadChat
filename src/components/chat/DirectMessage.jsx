@@ -45,11 +45,45 @@ const DirectMessage = ({ recipientId, recipientName }) => {
     loadMessages();
 
     // Socket event listeners
-    socket.on('receive_direct_message', handleNewMessage);
+    const handleReceiveMessage = ({ message }) => {
+      console.log('Received direct message:', message);
+      if (message.sender === recipientId || message.recipient === recipientId) {
+        setMessages(prev => [...prev, message]);
+        scrollToBottom();
+      }
+    };
+
+    const handleMessageSent = ({ status, data }) => {
+      console.log('Message sent status:', status, data);
+      if (status === 'success') {
+        setMessages(prev => [...prev, data]);
+        scrollToBottom();
+      }
+    };
+
+    const handleMessageError = ({ status, message }) => {
+      console.error('Error sending message:', message);
+      // You could show a toast notification here
+    };
+
+    const handleTypingStatus = ({ userId, isTyping }) => {
+      console.log('Typing status:', userId, isTyping);
+      if (userId === recipientId) {
+        setRecipientTyping(isTyping);
+      }
+    };
+
+    // Add event listeners
+    socket.on('receive_direct_message', handleReceiveMessage);
+    socket.on('message_sent', handleMessageSent);
+    socket.on('message_error', handleMessageError);
     socket.on('typing_status', handleTypingStatus);
 
+    // Cleanup event listeners
     return () => {
-      socket.off('receive_direct_message', handleNewMessage);
+      socket.off('receive_direct_message', handleReceiveMessage);
+      socket.off('message_sent', handleMessageSent);
+      socket.off('message_error', handleMessageError);
       socket.off('typing_status', handleTypingStatus);
     };
   }, [socket, recipientId]);
@@ -64,31 +98,26 @@ const DirectMessage = ({ recipientId, recipientName }) => {
     }
   };
 
-  const handleTypingStatus = ({ userId, status }) => {
-    if (userId === recipientId) {
-      setRecipientTyping(status);
-    }
-  };
-
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
-
   const handleTyping = () => {
-    if (!isTyping) {
-      setIsTyping(true);
-      socket.emit('typing_start', { recipient: recipientId });
-    }
+    if (!socket) return;
 
-    // Clear existing timeout
+    // Emit typing status
+    socket.emit('typing_direct', {
+      recipientId,
+      isTyping: true
+    });
+
+    // Clear previous timeout
     if (typingTimeoutRef.current) {
       clearTimeout(typingTimeoutRef.current);
     }
 
-    // Set new timeout
+    // Set new timeout to clear typing status
     typingTimeoutRef.current = setTimeout(() => {
-      setIsTyping(false);
-      socket.emit('typing_end', { recipient: recipientId });
+      socket.emit('typing_direct', {
+        recipientId,
+        isTyping: false
+      });
     }, 2000);
   };
 
@@ -103,94 +132,74 @@ const DirectMessage = ({ recipientId, recipientName }) => {
     }
   };
 
-  const uploadFile = async () => {
-    if (!file) return null;
-
-    const formData = new FormData();
-    formData.append('file', file);
+  const sendMessage = async (e) => {
+    e?.preventDefault();
+    if (!socket || (!message.trim() && !file)) return;
 
     try {
-      setUploading(true);
-      const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-      const response = await fetch(`${baseUrl}/api/uploads`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: formData
-      });
-
-      const data = await response.json();
-      if (data.status === 'success') {
-        return {
-          fileUrl: data.fileUrl,
-          fileName: file.name,
-          fileSize: file.size
-        };
-      } else {
-        throw new Error('Upload failed');
-      }
-    } catch (error) {
-      console.error('Error uploading file:', error);
-      return null;
-    } finally {
-      setUploading(false);
-      setFile(null);
-      fileInputRef.current.value = '';
-    }
-  };
-
-  const handleSendMessage = async (e) => {
-    e.preventDefault();
-    if ((!message.trim() && !file) || uploading) return;
-
-    try {
-      let fileData = null;
+      console.log('Sending message to:', recipientId);
+      
       if (file) {
-        fileData = await uploadFile();
-      }
-
-      const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-      const response = await fetch(`${baseUrl}/api/direct-messages`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify({
-          recipient: recipientId,
-          content: message.trim(),
-          messageType: file ? 'file' : 'text',
-          ...(fileData && {
-            fileUrl: fileData.fileUrl,
-            fileName: fileData.fileName,
-            fileSize: fileData.fileSize
-          })
-        })
-      });
-
-      const data = await response.json();
-      if (data.status === 'success') {
-        setMessage('');
+        // Handle file upload
+        setUploading(true);
+        const formData = new FormData();
+        formData.append('file', file);
+        
+        const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+        const response = await fetch(`${baseUrl}/api/upload`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          },
+          body: formData
+        });
+        
+        const data = await response.json();
+        if (data.status === 'success') {
+          socket.emit('send_direct_message', {
+            recipientId,
+            text: message.trim(),
+            fileUrl: data.fileUrl,
+            fileName: file.name,
+            fileSize: file.size,
+            timestamp: new Date()
+          }, (response) => {
+            console.log('Message send response:', response);
+            if (response.status === 'error') {
+              console.error('Error sending message:', response.message);
+            }
+          });
+        }
+        setUploading(false);
         setFile(null);
-        socket.emit('direct_message', {
-          recipient: recipientId,
-          content: message.trim(),
-          messageType: file ? 'file' : 'text',
-          ...(fileData && {
-            fileUrl: fileData.fileUrl,
-            fileName: fileData.fileName,
-            fileSize: fileData.fileSize
-          })
+      } else {
+        // Send text message
+        socket.emit('send_direct_message', {
+          recipientId,
+          text: message.trim(),
+          timestamp: new Date()
+        }, (response) => {
+          console.log('Message send response:', response);
+          if (response.status === 'error') {
+            console.error('Error sending message:', response.message);
+          }
         });
       }
+      
+      setMessage('');
+      setShowEmojiPicker(false);
     } catch (error) {
       console.error('Error sending message:', error);
+      setUploading(false);
     }
   };
 
   const onEmojiClick = (emojiData) => {
     setMessage(prev => prev + emojiData.emoji);
+  };
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
   return (
@@ -265,7 +274,7 @@ const DirectMessage = ({ recipientId, recipientName }) => {
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
-                handleSendMessage(e);
+                sendMessage(e);
               }
             }}
             onInput={handleTyping}
@@ -301,7 +310,7 @@ const DirectMessage = ({ recipientId, recipientName }) => {
           </button>
 
           <button
-            onClick={handleSendMessage}
+            onClick={sendMessage}
             disabled={(!message.trim() && !file) || uploading}
             className="p-2 bg-blue-500 text-white rounded-full hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
           >

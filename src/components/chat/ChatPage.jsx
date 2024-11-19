@@ -52,7 +52,7 @@ const ChatPage = () => {
     socket.on('onlineUsers', (users) => {
       console.log('👥 Online users updated:', users);
       if (Array.isArray(users)) {
-        const filteredUsers = users.filter(u => u.id !== user?._id);
+        const filteredUsers = users.filter(u => u._id !== user?._id);
         console.log('Filtered online users:', filteredUsers);
         setOnlineUsers(filteredUsers);
       }
@@ -126,15 +126,11 @@ const ChatPage = () => {
 
   const handleLogout = async () => {
     try {
-      // First cleanup socket connection
       cleanupSocket();
-      // Then logout from auth
       await logout();
-      // Finally navigate to auth page
       navigate('/auth');
     } catch (error) {
       console.error('Error during logout:', error);
-      // Still try to navigate even if there's an error
       navigate('/auth');
     }
   };
@@ -174,9 +170,9 @@ const ChatPage = () => {
             {onlineUsers.length > 0 ? (
               onlineUsers.map((onlineUser) => (
                 <div
-                  key={onlineUser.id}
+                  key={onlineUser._id}
                   className={`flex items-center space-x-3 p-2 rounded-lg cursor-pointer ${
-                    selectedUser?.id === onlineUser.id
+                    selectedUser?._id === onlineUser._id
                       ? 'bg-blue-100 dark:bg-blue-900'
                       : 'hover:bg-gray-100 dark:hover:bg-gray-700'
                   }`}
@@ -233,7 +229,7 @@ const ChatPage = () => {
         {/* Chat Content */}
         {chatType === 'direct' && selectedUser ? (
           <DirectMessage
-            recipientId={selectedUser.id}
+            recipientId={selectedUser._id}
             recipientName={selectedUser.name}
           />
         ) : (
