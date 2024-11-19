@@ -6,74 +6,78 @@ const SocketContext = createContext();
 
 export const useSocket = () => useContext(SocketContext);
 
+// Create a single socket instance outside the component
+let globalSocket = null;
+
 export const SocketProvider = ({ children }) => {
   const [socket, setSocket] = useState(null);
   const { currentUser: user } = useAuth();
   const token = localStorage.getItem('token');
-  const socketRef = useRef(null);
+  const socketInitialized = useRef(false);
 
-  useEffect(() => {
-    if (!user || !token) {
-      console.log('No user or token available, not connecting socket');
-      if (socketRef.current) {
-        console.log('Disconnecting existing socket');
-        socketRef.current.disconnect();
-        socketRef.current = null;
-        setSocket(null);
-      }
+  const initializeSocket = () => {
+    if (!user || !token || socketInitialized.current || globalSocket) {
       return;
     }
 
-    // Only create a new socket if one doesn't exist
-    if (!socketRef.current) {
-      const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-      console.log('Creating new socket connection to:', baseUrl);
+    const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+    console.log('Initializing socket connection...');
 
-      socketRef.current = io(baseUrl, {
-        auth: { token },
-        reconnection: true,
-        reconnectionAttempts: 5,
-        reconnectionDelay: 1000,
-      });
+    globalSocket = io(baseUrl, {
+      auth: { token },
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
+    });
 
-      socketRef.current.on('connect', () => {
-        console.log('Socket connected successfully');
-        setSocket(socketRef.current);
-      });
+    globalSocket.on('connect', () => {
+      console.log('Socket connected successfully');
+      setSocket(globalSocket);
+      socketInitialized.current = true;
+    });
 
-      socketRef.current.on('connect_error', (error) => {
-        console.error('Socket connection error:', error.message);
-        if (error.message.includes('Authentication error')) {
-          console.error('Socket authentication failed');
-          socketRef.current.disconnect();
-          socketRef.current = null;
-          setSocket(null);
-        }
-      });
+    globalSocket.on('connect_error', (error) => {
+      console.error('Socket connection error:', error.message);
+      if (error.message.includes('Authentication error')) {
+        console.error('Socket authentication failed');
+        cleanupSocket();
+      }
+    });
 
-      socketRef.current.on('disconnect', (reason) => {
-        console.log('Socket disconnected:', reason);
-        if (reason === 'io server disconnect') {
-          // Server initiated disconnect, clean up
-          socketRef.current = null;
-          setSocket(null);
-        }
-      });
+    globalSocket.on('disconnect', (reason) => {
+      console.log('Socket disconnected:', reason);
+      if (reason === 'io server disconnect' || reason === 'io client disconnect') {
+        cleanupSocket();
+      }
+    });
+  };
+
+  const cleanupSocket = () => {
+    if (globalSocket) {
+      console.log('Cleaning up socket connection');
+      globalSocket.disconnect();
+      globalSocket = null;
+      setSocket(null);
+      socketInitialized.current = false;
+    }
+  };
+
+  useEffect(() => {
+    if (user && token) {
+      initializeSocket();
+    } else {
+      cleanupSocket();
     }
 
-    // Cleanup function
     return () => {
-      if (socketRef.current) {
-        console.log('Cleaning up socket connection');
-        socketRef.current.disconnect();
-        socketRef.current = null;
-        setSocket(null);
+      if (!user || !token) {
+        cleanupSocket();
       }
     };
-  }, [user, token]); // Only re-run if user or token changes
+  }, [user, token]);
 
   return (
-    <SocketContext.Provider value={{ socket }}>
+    <SocketContext.Provider value={{ socket, cleanupSocket }}>
       {children}
     </SocketContext.Provider>
   );

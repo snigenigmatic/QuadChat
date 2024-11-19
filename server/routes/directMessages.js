@@ -2,6 +2,7 @@ const express = require('express');
 const { auth } = require('../middleware/auth');
 const DirectMessage = require('../models/DirectMessage');
 const User = require('../models/User');
+const mongoose = require('mongoose');
 
 const router = express.Router();
 
@@ -163,6 +164,84 @@ router.get('/unread', auth, async (req, res) => {
       status: 'error',
       message: 'Error fetching unread count',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// Get messages between current user and another user
+router.get('/:userId', auth, async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    // Validate userId
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Invalid user ID'
+      });
+    }
+
+    // Get messages between the two users
+    const messages = await DirectMessage.find({
+      $or: [
+        { sender: req.user._id, recipient: userId },
+        { sender: userId, recipient: req.user._id }
+      ]
+    })
+    .sort({ createdAt: 1 })
+    .populate('sender', 'name email')
+    .populate('recipient', 'name email');
+
+    res.json({
+      status: 'success',
+      messages
+    });
+  } catch (error) {
+    console.error('Error fetching direct messages:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Error fetching messages'
+    });
+  }
+});
+
+// Send a direct message
+router.post('/', auth, async (req, res) => {
+  try {
+    const { recipient, content, messageType = 'text', fileUrl, fileName, fileSize } = req.body;
+
+    // Validate recipient
+    if (!mongoose.Types.ObjectId.isValid(recipient)) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Invalid recipient ID'
+      });
+    }
+
+    // Create new message
+    const newMessage = new DirectMessage({
+      sender: req.user._id,
+      recipient,
+      content,
+      messageType,
+      fileUrl,
+      fileName,
+      fileSize
+    });
+
+    await newMessage.save();
+    await newMessage.populate('sender', 'name email');
+    await newMessage.populate('recipient', 'name email');
+
+    res.json({
+      status: 'success',
+      message: newMessage
+    });
+  } catch (error) {
+    console.error('Error sending direct message:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Error sending message'
     });
   }
 });

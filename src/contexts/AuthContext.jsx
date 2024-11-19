@@ -85,22 +85,29 @@ export function AuthProvider({ children }) {
   const logout = async () => {
     try {
       const token = localStorage.getItem('token');
-      console.log('Logging out user');
-
       if (token) {
-        await fetch(`${baseUrl}/api/auth/logout`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        });
+        // Call the logout endpoint if it exists
+        try {
+          await fetch(`${baseUrl}/api/auth/logout`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${token}`
+            }
+          });
+        } catch (error) {
+          console.error('Error calling logout endpoint:', error);
+        }
       }
-    } catch (error) {
-      console.error('Logout error:', error);
-    } finally {
+      
+      // Clear local storage and state regardless of server response
       localStorage.removeItem('token');
       setCurrentUser(null);
-      console.log('User logged out, cleared data');
+      setError(null);
+    } catch (error) {
+      console.error('Error during logout:', error);
+      // Still clear local data even if there's an error
+      localStorage.removeItem('token');
+      setCurrentUser(null);
     }
   };
 

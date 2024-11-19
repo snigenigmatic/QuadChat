@@ -26,14 +26,17 @@ const DirectMessage = ({ recipientId, recipientName }) => {
     // Load previous messages
     const loadMessages = async () => {
       try {
-        const response = await fetch(`/api/direct/messages/${recipientId}`, {
+        const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+        const response = await fetch(`${baseUrl}/api/direct-messages/${recipientId}`, {
           headers: {
             'Authorization': `Bearer ${localStorage.getItem('token')}`
           }
         });
         const data = await response.json();
-        setMessages(data.messages);
-        scrollToBottom();
+        if (data.status === 'success') {
+          setMessages(data.messages);
+          scrollToBottom();
+        }
       } catch (error) {
         console.error('Error loading messages:', error);
       }
@@ -108,7 +111,8 @@ const DirectMessage = ({ recipientId, recipientName }) => {
 
     try {
       setUploading(true);
-      const response = await fetch('/api/upload', {
+      const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+      const response = await fetch(`${baseUrl}/api/uploads`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
@@ -116,14 +120,16 @@ const DirectMessage = ({ recipientId, recipientName }) => {
         body: formData
       });
 
-      if (!response.ok) throw new Error('Upload failed');
-
       const data = await response.json();
-      return {
-        fileUrl: data.fileUrl,
-        fileName: file.name,
-        fileSize: file.size
-      };
+      if (data.status === 'success') {
+        return {
+          fileUrl: data.fileUrl,
+          fileName: file.name,
+          fileSize: file.size
+        };
+      } else {
+        throw new Error('Upload failed');
+      }
     } catch (error) {
       console.error('Error uploading file:', error);
       return null;
@@ -134,27 +140,53 @@ const DirectMessage = ({ recipientId, recipientName }) => {
     }
   };
 
-  const sendMessage = async () => {
+  const handleSendMessage = async (e) => {
+    e.preventDefault();
     if ((!message.trim() && !file) || uploading) return;
 
-    let fileData = null;
-    if (file) {
-      fileData = await uploadFile();
-      if (!fileData) return;
+    try {
+      let fileData = null;
+      if (file) {
+        fileData = await uploadFile();
+      }
+
+      const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+      const response = await fetch(`${baseUrl}/api/direct-messages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({
+          recipient: recipientId,
+          content: message.trim(),
+          messageType: file ? 'file' : 'text',
+          ...(fileData && {
+            fileUrl: fileData.fileUrl,
+            fileName: fileData.fileName,
+            fileSize: fileData.fileSize
+          })
+        })
+      });
+
+      const data = await response.json();
+      if (data.status === 'success') {
+        setMessage('');
+        setFile(null);
+        socket.emit('direct_message', {
+          recipient: recipientId,
+          content: message.trim(),
+          messageType: file ? 'file' : 'text',
+          ...(fileData && {
+            fileUrl: fileData.fileUrl,
+            fileName: fileData.fileName,
+            fileSize: fileData.fileSize
+          })
+        });
+      }
+    } catch (error) {
+      console.error('Error sending message:', error);
     }
-
-    const newMessage = {
-      sender: user._id,
-      recipient: recipientId,
-      content: message.trim(),
-      messageType: fileData ? 'file' : 'text',
-      ...fileData,
-      timestamp: new Date().toISOString()
-    };
-
-    socket.emit('send_direct_message', newMessage);
-    setMessage('');
-    setShowEmojiPicker(false);
   };
 
   const onEmojiClick = (emojiData) => {
@@ -233,7 +265,7 @@ const DirectMessage = ({ recipientId, recipientName }) => {
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
-                sendMessage();
+                handleSendMessage(e);
               }
             }}
             onInput={handleTyping}
@@ -269,7 +301,7 @@ const DirectMessage = ({ recipientId, recipientName }) => {
           </button>
 
           <button
-            onClick={sendMessage}
+            onClick={handleSendMessage}
             disabled={(!message.trim() && !file) || uploading}
             className="p-2 bg-blue-500 text-white rounded-full hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
           >

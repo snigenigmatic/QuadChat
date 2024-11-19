@@ -93,7 +93,7 @@ app.use(compression()); // Compression
 // Mount routes
 app.use('/api/auth', authRoutes);
 app.use('/api/chat', auth, chatRoutes);
-app.use('/api/messages', auth, directMessageRoutes);
+app.use('/api/direct-messages', auth, directMessageRoutes);
 app.use('/api/uploads', auth, uploadRoutes);
 
 // Serve static files
@@ -233,36 +233,49 @@ io.on('connection', async (socket) => {
   });
 
   // Handle direct messages
-  socket.on('direct_message', async (data) => {
+  socket.on('direct_message', async (messageData) => {
     try {
-      const { recipientId, content, type = 'text' } = data;
+      const { content, recipient, messageType, fileUrl, fileName, fileSize } = messageData;
       
-      // Create and save message
-      const message = new DirectMessage({
+      // Create new direct message
+      const newMessage = new DirectMessage({
         sender: userId,
-        recipient: recipientId,
+        recipient,
         content,
-        type,
-        timestamp: new Date()
+        messageType,
+        fileUrl,
+        fileName,
+        fileSize
       });
-      await message.save();
 
-      // Send to recipient if online
-      const recipient = connectedUsers.get(recipientId);
-      if (recipient) {
-        io.to(recipient.socketId).emit('direct_message', {
-          messageId: message._id,
-          sender: userId,
-          content,
-          type,
-          timestamp: message.timestamp
+      await newMessage.save();
+
+      // Populate sender info
+      await newMessage.populate('sender', 'name email');
+
+      // Send message to recipient if they're online
+      const recipientSocket = Array.from(io.sockets.sockets.values())
+        .find(s => s.user._id.toString() === recipient);
+
+      if (recipientSocket) {
+        recipientSocket.emit('receive_direct_message', {
+          message: newMessage,
+          sender: user
         });
       }
 
-      // Confirm message sent
-      socket.emit('message_sent', { messageId: message._id });
+      // Send acknowledgment back to sender
+      socket.emit('message_sent', {
+        status: 'success',
+        message: 'Message sent successfully',
+        data: newMessage
+      });
     } catch (error) {
-      socket.emit('message_error', { error: 'Failed to send message' });
+      console.error('Error sending direct message:', error);
+      socket.emit('message_error', {
+        status: 'error',
+        message: 'Failed to send message'
+      });
     }
   });
 
