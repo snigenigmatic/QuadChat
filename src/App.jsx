@@ -1,7 +1,5 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { AuthProvider } from './contexts/AuthContext';
-import { ThemeProvider } from './contexts/ThemeContext';
 import { SocketProvider } from './contexts/SocketContext';
 import Home from './pages/Home';
 import Auth from './pages/Auth';
@@ -52,15 +50,11 @@ const AppRoutes = () => {
 const App = () => {
   return (
     <Router>
-      <ThemeProvider>
-        <AuthProvider>
-          <SocketProvider>
-            <div className="min-h-screen bg-white dark:bg-gray-900">
-              <AppRoutes />
-            </div>
-          </SocketProvider>
-        </AuthProvider>
-      </ThemeProvider>
+      <SocketProvider>
+        <div className="min-h-screen bg-white dark:bg-gray-900">
+          <AppRoutes />
+        </div>
+      </SocketProvider>
     </Router>
   );
 };

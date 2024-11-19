@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSocket } from '../../contexts/SocketContext';
 import { useAuth } from '../../contexts/AuthContext';
-import ThemeToggle from '../shared/ThemeToggle';
+import { useTheme } from '../../contexts/ThemeContext';
 import DirectMessage from './DirectMessage';
 
 const ChatPage = () => {
@@ -13,6 +13,7 @@ const ChatPage = () => {
   const [selectedUser, setSelectedUser] = useState(null);
   const { socket, cleanupSocket } = useSocket();
   const { currentUser: user, logout } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const messagesEndRef = useRef(null);
 
@@ -200,29 +201,63 @@ const ChatPage = () => {
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col">
         {/* Header */}
-        <header className="bg-white dark:bg-gray-800 shadow-md px-4 py-3">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center space-x-4">
-              <h1 className="text-xl font-semibold text-gray-900 dark:text-white">
-                {chatType === 'direct' && selectedUser 
-                  ? `Chat with ${selectedUser.name}`
-                  : 'QuadChat Room'}
-              </h1>
-              <span className="text-sm px-2 py-1 bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-100 rounded-full">
-                {onlineUsers.length + 1} Online
-              </span>
-            </div>
-            <div className="flex items-center space-x-4">
-              <ThemeToggle />
-              <button
-                onClick={handleLogout}
-                className="text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors"
-              >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+        <header className="bg-white dark:bg-gray-800 shadow-md px-4 py-3 flex justify-between items-center">
+          <div className="flex items-center space-x-4">
+            <h1 className="text-xl font-semibold text-gray-900 dark:text-white">
+              {chatType === 'direct' && selectedUser 
+                ? `Chat with ${selectedUser.name}`
+                : 'QuadChat Room'}
+            </h1>
+            <span className="text-sm px-2 py-1 bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-100 rounded-full">
+              {onlineUsers.length + 1} Online
+            </span>
+          </div>
+          <div className="flex items-center space-x-4">
+            <button
+              onClick={toggleTheme}
+              className="p-2 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+              aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
+            >
+              {theme === 'light' ? (
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="h-6 w-6 text-gray-600 dark:text-gray-300"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"
+                  />
                 </svg>
-              </button>
-            </div>
+              ) : (
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="h-6 w-6 text-gray-600 dark:text-gray-300"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"
+                  />
+                </svg>
+              )}
+            </button>
+            <button
+              onClick={handleLogout}
+              className="p-2 rounded-lg bg-red-100 dark:bg-red-900 hover:bg-red-200 dark:hover:bg-red-800 text-red-600 dark:text-red-300 transition-colors"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+              </svg>
+            </button>
           </div>
         </header>
 
