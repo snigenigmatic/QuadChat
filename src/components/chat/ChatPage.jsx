@@ -9,60 +9,12 @@ const ChatPage = () => {
   const [newMessage, setNewMessage] = useState('');
   const [onlineUsers, setOnlineUsers] = useState([]);
   const { socket } = useSocket();
-  const { user } = useAuth();
+  const { currentUser: user } = useAuth();
   const navigate = useNavigate();
   const messagesEndRef = useRef(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
-
-  useEffect(() => {
-    if (!socket) return;
-
-    // Listen for new messages
-    socket.on('message', (message) => {
-      setMessages(prevMessages => [...prevMessages, message]);
-    });
-
-    // Listen for online users updates
-    socket.on('onlineUsers', (users) => {
-      setOnlineUsers(users.filter(u => u.id !== user?.id));
-    });
-
-    // Load message history
-    socket.emit('getMessages', (response) => {
-      if (response.status === 'success') {
-        setMessages(response.data);
-      }
-    });
-
-    return () => {
-      socket.off('message');
-      socket.off('onlineUsers');
-    };
-  }, [socket, user]);
-
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
-
-  const handleSendMessage = (e) => {
-    e.preventDefault();
-    if (!newMessage.trim() || !socket) return;
-
-    const messageData = {
-      text: newMessage,
-      timestamp: new Date(),
-    };
-
-    socket.emit('sendMessage', messageData, (response) => {
-      if (response.status === 'error') {
-        console.error('Error sending message:', response.message);
-      }
-    });
-
-    setNewMessage('');
   };
 
   const getInitials = (name) => {
@@ -72,6 +24,73 @@ const ChatPage = () => {
       .join('')
       .toUpperCase()
       .slice(0, 2);
+  };
+
+  useEffect(() => {
+    if (!socket) return;
+
+    // Socket connection status
+    socket.on('connect', () => {
+      console.log('🔌 Connected to server');
+    });
+
+    socket.on('disconnect', () => {
+      console.log('🔌 Disconnected from server');
+    });
+
+    // Listen for new messages
+    socket.on('message', (message) => {
+      console.log('📨 Received message:', message);
+      setMessages(prevMessages => [...prevMessages, message]);
+      scrollToBottom();
+    });
+
+    // Listen for online users updates
+    socket.on('onlineUsers', (users) => {
+      console.log('👥 Online users updated:', users);
+      if (Array.isArray(users)) {
+        const filteredUsers = users.filter(u => u.id !== user?._id);
+        console.log('Filtered online users:', filteredUsers);
+        setOnlineUsers(filteredUsers);
+      }
+    });
+
+    // Load message history
+    socket.emit('getMessages', (response) => {
+      console.log('📜 Loading message history:', response);
+      if (response.status === 'success') {
+        setMessages(response.data);
+        scrollToBottom();
+      }
+    });
+
+    return () => {
+      socket.off('connect');
+      socket.off('disconnect');
+      socket.off('message');
+      socket.off('onlineUsers');
+    };
+  }, [socket, user]);
+
+  const handleSendMessage = (e) => {
+    e.preventDefault();
+    if (!newMessage.trim() || !socket) return;
+
+    console.log('📤 Sending message:', newMessage);
+    const messageData = {
+      text: newMessage.trim(),
+      timestamp: new Date().toISOString(),
+    };
+
+    socket.emit('sendMessage', messageData, (response) => {
+      if (response.status === 'success') {
+        console.log('✅ Message sent successfully:', response.data);
+      } else {
+        console.error('❌ Error sending message:', response.message);
+      }
+    });
+
+    setNewMessage('');
   };
 
   const formatTime = (timestamp) => {
@@ -90,7 +109,7 @@ const ChatPage = () => {
     });
   };
 
-  const isOwnMessage = (senderId) => senderId === user?.id;
+  const isOwnMessage = (senderId) => senderId === user?._id;
 
   return (
     <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
@@ -99,23 +118,27 @@ const ChatPage = () => {
         <div className="p-4">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Online Users</h2>
           <div className="space-y-2">
-            {onlineUsers.map((onlineUser) => (
-              <div
-                key={onlineUser.id}
-                className="flex items-center space-x-3 p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
-              >
-                <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-white font-medium">
-                  {getInitials(onlineUser.name)}
-                </div>
-                <div>
-                  <span className="text-sm font-medium text-gray-900 dark:text-white">{onlineUser.name}</span>
-                  <div className="flex items-center space-x-1">
-                    <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                    <span className="text-xs text-gray-500 dark:text-gray-400">Online</span>
+            {onlineUsers.length > 0 ? (
+              onlineUsers.map((onlineUser) => (
+                <div
+                  key={onlineUser.id}
+                  className="flex items-center space-x-3 p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
+                >
+                  <div className="w-8 h-8 rounded-full bg-blue-500 flex-shrink-0 flex items-center justify-center text-white font-medium">
+                    {getInitials(onlineUser.name)}
+                  </div>
+                  <div>
+                    <span className="text-sm font-medium text-gray-900 dark:text-white">{onlineUser.name}</span>
+                    <div className="flex items-center space-x-1">
+                      <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                      <span className="text-xs text-gray-500 dark:text-gray-400">Online</span>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              ))
+            ) : (
+              <div className="text-sm text-gray-500 dark:text-gray-400">No users online</div>
+            )}
           </div>
         </div>
       </div>
@@ -134,11 +157,14 @@ const ChatPage = () => {
             <div className="flex items-center space-x-4">
               <ThemeToggle />
               <button
-                onClick={() => navigate('/')}
+                onClick={async () => {
+                  await user.logout();
+                  navigate('/');
+                }}
                 className="text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors"
               >
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
                 </svg>
               </button>
             </div>
@@ -149,12 +175,12 @@ const ChatPage = () => {
         <div className="flex-1 overflow-y-auto p-4">
           <div className="max-w-3xl mx-auto space-y-4">
             {messages.map((message, index) => {
-              const isOwn = isOwnMessage(message.sender.id);
-              const showAvatar = !isOwn && (!messages[index - 1] || messages[index - 1].sender.id !== message.sender.id);
+              const isOwn = isOwnMessage(message.sender._id);
+              const showAvatar = !isOwn && (!messages[index - 1] || messages[index - 1].sender._id !== message.sender._id);
 
               return (
                 <div
-                  key={message.id}
+                  key={message._id}
                   className={`flex items-end space-x-2 ${isOwn ? 'justify-end' : 'justify-start'}`}
                 >
                   {!isOwn && showAvatar && (
@@ -208,7 +234,8 @@ const ChatPage = () => {
             />
             <button
               type="submit"
-              className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
+              disabled={!newMessage.trim()}
+              className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Send
             </button>

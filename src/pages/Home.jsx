@@ -1,17 +1,10 @@
-import React, { useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import React from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import ThemeToggle from '../components/shared/ThemeToggle.jsx';
 
 const Home = () => {
   const { currentUser } = useAuth();
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    if (currentUser) {
-      navigate('/chat');
-    }
-  }, [currentUser, navigate]);
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-white to-gray-50 dark:from-gray-900 dark:to-gray-800 text-gray-900 dark:text-white">
@@ -27,12 +20,29 @@ const Home = () => {
             </div>
             <div className="flex items-center space-x-4">
               <ThemeToggle />
-              <Link 
-                to="/auth" 
-                className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition-all duration-200 transform hover:scale-105 hover:shadow-lg font-medium"
-              >
-                Get Started
-              </Link>
+              {currentUser ? (
+                <div className="flex items-center space-x-4">
+                  <Link 
+                    to="/chat" 
+                    className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition-all duration-200 transform hover:scale-105 hover:shadow-lg font-medium"
+                  >
+                    Go to Chat
+                  </Link>
+                  <Link 
+                    to="/auth" 
+                    className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg transition-all duration-200 transform hover:scale-105 hover:shadow-lg font-medium"
+                  >
+                    Add Account
+                  </Link>
+                </div>
+              ) : (
+                <Link 
+                  to="/auth" 
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition-all duration-200 transform hover:scale-105 hover:shadow-lg font-medium"
+                >
+                  Get Started
+                </Link>
+              )}
             </div>
           </div>
         </div>
@@ -47,7 +57,6 @@ const Home = () => {
           <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-72 h-72 bg-pink-400 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob animation-delay-4000"></div>
         </div>
 
-        {/* Content */}
         <div className="container mx-auto">
           <div className="text-center space-y-8">
             <h2 className="text-5xl sm:text-6xl lg:text-7xl font-bold text-gray-900 dark:text-white">
@@ -56,22 +65,48 @@ const Home = () => {
             <p className="max-w-2xl mx-auto text-xl sm:text-2xl text-gray-600 dark:text-gray-300">
               Join the conversation and connect with your fellow students in a modern, intuitive chat platform.
             </p>
+
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-6">
-              <Link
-                to="/auth"
-                className="w-full sm:w-auto inline-flex items-center justify-center px-8 py-4 text-lg font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-all duration-200 transform hover:scale-105 hover:shadow-lg"
-              >
-                <span>Join Now</span>
-                <svg className="ml-2 w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
-                </svg>
-              </Link>
-              <Link
-                to="/chat"
-                className="w-full sm:w-auto inline-flex items-center justify-center px-8 py-4 text-lg font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-xl border border-gray-200 dark:border-gray-700 transition-all duration-200 transform hover:scale-105 hover:shadow-lg"
-              >
-                Try Demo
-              </Link>
+              {currentUser ? (
+                <>
+                  <Link
+                    to="/chat"
+                    className="w-full sm:w-auto inline-flex items-center justify-center px-8 py-4 text-lg font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-all duration-200 transform hover:scale-105 hover:shadow-lg"
+                  >
+                    <span>Go to Chat</span>
+                    <svg className="ml-2 w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                    </svg>
+                  </Link>
+                  <Link
+                    to="/auth"
+                    className="w-full sm:w-auto inline-flex items-center justify-center px-8 py-4 text-lg font-medium text-white bg-green-600 hover:bg-green-700 rounded-xl transition-all duration-200 transform hover:scale-105 hover:shadow-lg"
+                  >
+                    <span>Add Another Account</span>
+                    <svg className="ml-2 w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                    </svg>
+                  </Link>
+                </>
+              ) : (
+                <>
+                  <Link
+                    to="/auth"
+                    className="w-full sm:w-auto inline-flex items-center justify-center px-8 py-4 text-lg font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-all duration-200 transform hover:scale-105 hover:shadow-lg"
+                  >
+                    <span>Join Now</span>
+                    <svg className="ml-2 w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                    </svg>
+                  </Link>
+                  <Link
+                    to="/chat"
+                    className="w-full sm:w-auto inline-flex items-center justify-center px-8 py-4 text-lg font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-xl border border-gray-200 dark:border-gray-700 transition-all duration-200 transform hover:scale-105 hover:shadow-lg"
+                  >
+                    Try Demo
+                  </Link>
+                </>
+              )}
             </div>
           </div>
 

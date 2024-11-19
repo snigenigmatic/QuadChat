@@ -54,19 +54,19 @@ userSchema.methods.generateAuthToken = async function() {
   
   // Create token
   const token = jwt.sign(
-    { 
-      userId: user._id.toString(),
-      email: user.email 
-    },
+    { userId: user._id.toString() },
     process.env.JWT_SECRET,
     { expiresIn: '7d' }
   );
 
   // Add token to user's tokens array
-  user.tokens = user.tokens.concat({ 
-    token,
-    createdAt: new Date()
-  });
+  user.tokens = user.tokens || [];
+  user.tokens.push({ token });
+  
+  // Clean up old tokens before saving
+  const now = new Date();
+  const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  user.tokens = user.tokens.filter(t => t.createdAt > sevenDaysAgo);
   
   await user.save();
   return token;
@@ -84,8 +84,12 @@ userSchema.methods.cleanExpiredTokens = async function() {
   const now = new Date();
   const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
   
-  user.tokens = user.tokens.filter(token => token.createdAt > sevenDaysAgo);
-  await user.save();
+  const originalLength = user.tokens.length;
+  user.tokens = user.tokens.filter(t => t.createdAt > sevenDaysAgo);
+  
+  if (user.tokens.length < originalLength) {
+    await user.save();
+  }
 };
 
 const User = mongoose.model('User', userSchema);

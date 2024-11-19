@@ -10,6 +10,7 @@ export function AuthProvider({ children }) {
   const [currentUser, setCurrentUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
   useEffect(() => {
     checkAuth();
@@ -23,27 +24,21 @@ export function AuthProvider({ children }) {
         return;
       }
 
-      const response = await fetch('/api/auth/me', {
+      console.log('Checking auth with token:', token ? 'Present' : 'Not present');
+      const response = await fetch(`${baseUrl}/api/auth/me`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        console.error('Auth check failed:', errorData);
-        localStorage.removeItem('token');
-        setCurrentUser(null);
-        setLoading(false);
-        return;
-      }
-
       const data = await response.json();
       console.log('Auth check response:', data);
 
-      if (data.status === 'success' && data.data?.user) {
+      if (response.ok && data.status === 'success' && data.data?.user) {
+        console.log('Setting current user:', data.data.user);
         setCurrentUser(data.data.user);
       } else {
+        console.log('Auth check failed, clearing user data');
         localStorage.removeItem('token');
         setCurrentUser(null);
       }
@@ -56,53 +51,12 @@ export function AuthProvider({ children }) {
     }
   };
 
-  const updateUserStatus = async (status) => {
-    try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        console.error('No token available for status update');
-        return;
-      }
-
-      const response = await fetch('/api/auth/status', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ status })
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        console.error('Failed to update status:', errorData);
-        if (response.status === 401) {
-          // Token might be invalid
-          localStorage.removeItem('token');
-          setCurrentUser(null);
-        }
-        return;
-      }
-
-      const data = await response.json();
-      
-      // Update user status in context if needed
-      if (currentUser) {
-        setCurrentUser(prev => ({
-          ...prev,
-          status: data.data.status
-        }));
-      }
-
-      return data;
-    } catch (error) {
-      console.error('Error updating status:', error);
-    }
-  };
-
   const login = async (email, password) => {
     try {
-      const response = await fetch('/api/auth/login', {
+      setError(null);
+      console.log('Attempting login for:', email);
+      
+      const response = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -113,20 +67,13 @@ export function AuthProvider({ children }) {
       const data = await response.json();
       console.log('Login response:', data);
 
-      if (!response.ok) {
-        throw new Error(data.message || 'Login failed');
-      }
-
-      if (data.status === 'success' && data.data?.token) {
-        const token = data.data.token;
-        localStorage.setItem('token', token);
+      if (response.ok && data.status === 'success' && data.data?.token) {
+        localStorage.setItem('token', data.data.token);
         setCurrentUser(data.data.user);
-        
-        // Don't wait for status update
-        updateUserStatus('online').catch(console.error);
+        console.log('Login successful, user:', data.data.user);
         return true;
       } else {
-        throw new Error(data.message || 'Invalid response format');
+        throw new Error(data.message || 'Login failed');
       }
     } catch (error) {
       console.error('Login error:', error);
@@ -138,11 +85,10 @@ export function AuthProvider({ children }) {
   const logout = async () => {
     try {
       const token = localStorage.getItem('token');
+      console.log('Logging out user');
+
       if (token) {
-        // Update status to offline before logging out
-        await updateUserStatus('offline');
-        
-        await fetch('/api/auth/logout', {
+        await fetch(`${baseUrl}/api/auth/logout`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${token}`
@@ -154,16 +100,16 @@ export function AuthProvider({ children }) {
     } finally {
       localStorage.removeItem('token');
       setCurrentUser(null);
+      console.log('User logged out, cleared data');
     }
   };
 
   const value = {
     currentUser,
-    loading,
-    error,
     login,
     logout,
-    updateUserStatus
+    loading,
+    error
   };
 
   return (

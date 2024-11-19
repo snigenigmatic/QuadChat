@@ -13,6 +13,7 @@ const { apiLimiter } = require('./middleware/rateLimiter');
 const DirectMessage = require('./models/DirectMessage');
 const User = require('./models/User');
 const Message = require('./models/Message');
+const Room = require('./models/Room');
 const authRoutes = require('./routes/auth');
 const chatRoutes = require('./routes/chat');
 const directMessageRoutes = require('./routes/directMessages');
@@ -28,6 +29,48 @@ const io = new Server(server, {
     credentials: true
   }
 });
+
+// Store connected users and general room ID
+const connectedUsers = new Map();
+let generalRoomId;
+
+// Initialize general room
+const initializeGeneralRoom = async () => {
+  try {
+    let generalRoom = await Room.findOne({ name: 'general' });
+    if (!generalRoom) {
+      // Create the general room if it doesn't exist
+      const systemUser = await User.findOne({ email: 'system@quadchat.com' });
+      let creatorId;
+      
+      if (!systemUser) {
+        // Create system user if it doesn't exist
+        const systemUser = new User({
+          name: 'System',
+          email: 'system@quadchat.com',
+          password: require('crypto').randomBytes(32).toString('hex'),
+          status: 'online'
+        });
+        await systemUser.save();
+        creatorId = systemUser._id;
+      } else {
+        creatorId = systemUser._id;
+      }
+
+      generalRoom = new Room({
+        name: 'general',
+        description: 'General chat room for all users',
+        createdBy: creatorId,
+        participants: [creatorId]
+      });
+      await generalRoom.save();
+    }
+    generalRoomId = generalRoom._id;
+    console.log('General room initialized with ID:', generalRoomId);
+  } catch (error) {
+    console.error('Error initializing general room:', error);
+  }
+};
 
 // Basic middleware
 app.use(express.json());
@@ -75,13 +118,15 @@ mongoose.connect(process.env.MONGODB_URI)
 // Socket authentication middleware
 io.use(socketAuth);
 
-// Connected users map
-const connectedUsers = new Map();
+// Initialize general room
+initializeGeneralRoom();
 
 // Socket.IO event handlers
 io.on('connection', async (socket) => {
   const userId = socket.user._id;
   const user = await User.findById(userId).select('name email status');
+  
+  console.log(` User connected: ${user.name} (${userId})`);
   
   // Add user to connected users
   connectedUsers.set(userId, {
@@ -96,8 +141,18 @@ io.on('connection', async (socket) => {
   // Update user status to online
   await User.findByIdAndUpdate(userId, { status: 'online' });
 
+  // Add user to general room if not already a participant
+  if (generalRoomId) {
+    const generalRoom = await Room.findById(generalRoomId);
+    if (generalRoom && !generalRoom.participants.includes(userId)) {
+      generalRoom.participants.push(userId);
+      await generalRoom.save();
+    }
+  }
+
   // Broadcast updated online users list
   const onlineUsers = Array.from(connectedUsers.values()).map(({ user }) => user);
+  console.log(' Current online users:', onlineUsers.map(u => u.name).join(', '));
   io.emit('onlineUsers', onlineUsers);
 
   // Handle new messages
@@ -109,7 +164,7 @@ io.on('connection', async (socket) => {
       const message = new Message({
         content: text,
         sender: userId,
-        room: 'general', // For now, we'll use a default room
+        room: generalRoomId, // Use the general room ID
         messageType: 'text',
         createdAt: timestamp
       });
@@ -120,10 +175,10 @@ io.on('connection', async (socket) => {
 
       // Broadcast message to all users
       io.emit('message', {
-        id: message._id,
+        _id: message._id,
         text: message.content,
         sender: {
-          id: message.sender._id,
+          _id: message.sender._id,
           name: message.sender.name,
           email: message.sender.email
         },
@@ -134,9 +189,13 @@ io.on('connection', async (socket) => {
       callback({ 
         status: 'success', 
         data: {
-          id: message._id,
+          _id: message._id,
           text: message.content,
-          sender: userId,
+          sender: {
+            _id: message.sender._id,
+            name: message.sender.name,
+            email: message.sender.email
+          },
           timestamp: message.createdAt
         }
       });
@@ -146,32 +205,30 @@ io.on('connection', async (socket) => {
     }
   });
 
-  // Handle get messages request
+  // Handle message history request
   socket.on('getMessages', async (callback) => {
     try {
-      // Fetch last 50 messages from the database
-      const messages = await Message.find({ room: 'general' })
-        .sort({ createdAt: -1 })
-        .limit(50)
+      const messages = await Message.find({ room: generalRoomId })
+        .sort({ createdAt: 1 })
         .populate('sender', 'name email')
         .lean();
 
-      // Format messages
-      const formattedMessages = messages.reverse().map(msg => ({
-        id: msg._id,
-        text: msg.content,
-        sender: {
-          id: msg.sender._id,
-          name: msg.sender.name,
-          email: msg.sender.email
-        },
-        timestamp: msg.createdAt
-      }));
-
-      callback({ status: 'success', data: formattedMessages });
+      callback({
+        status: 'success',
+        data: messages.map(msg => ({
+          _id: msg._id,
+          text: msg.content,
+          sender: {
+            _id: msg.sender._id,
+            name: msg.sender.name,
+            email: msg.sender.email
+          },
+          timestamp: msg.createdAt
+        }))
+      });
     } catch (error) {
-      console.error('Error fetching messages:', error);
-      callback({ status: 'error', message: 'Failed to fetch messages' });
+      console.error('Error getting messages:', error);
+      callback({ status: 'error', message: 'Failed to get messages' });
     }
   });
 
@@ -222,15 +279,14 @@ io.on('connection', async (socket) => {
 
   // Handle disconnection
   socket.on('disconnect', async () => {
-    // Remove user from connected users
+    console.log(` User disconnected: ${user.name} (${userId})`);
     connectedUsers.delete(userId);
-
-    // Update user status to offline
     await User.findByIdAndUpdate(userId, { status: 'offline' });
-
+    
     // Broadcast updated online users list
-    const onlineUsers = Array.from(connectedUsers.values()).map(({ user }) => user);
-    io.emit('onlineUsers', onlineUsers);
+    const updatedOnlineUsers = Array.from(connectedUsers.values()).map(({ user }) => user);
+    console.log(' Current online users:', updatedOnlineUsers.map(u => u.name).join(', '));
+    io.emit('onlineUsers', updatedOnlineUsers);
   });
 });
 
