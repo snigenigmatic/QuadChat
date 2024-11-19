@@ -1,31 +1,52 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { AuthProvider } from './contexts/AuthContext';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ThemeProvider } from './contexts/ThemeContext';
-import ProtectedRoute from './components/auth/ProtectedRoute';
 import Auth from './pages/Auth';
 import Chat from './pages/Chat';
 import Home from './pages/Home';
 
+const PrivateRoute = ({ children }) => {
+  const { currentUser, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-white dark:bg-gray-900">
+        <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-500 border-t-transparent"></div>
+      </div>
+    );
+  }
+
+  return currentUser ? children : <Navigate to="/auth" />;
+};
+
+const PublicRoute = ({ children }) => {
+  const { currentUser } = useAuth();
+  return currentUser ? <Navigate to="/" /> : children;
+};
+
 const AppRoutes = () => {
   return (
     <Routes>
-      {/* Public routes */}
-      <Route path="/" element={<Home />} />
-      <Route path="/auth" element={<Auth />} />
+      <Route path="/auth" element={
+        <PublicRoute>
+          <Auth />
+        </PublicRoute>
+      } />
       
-      {/* Protected routes */}
-      <Route
-        path="/chat/*"
-        element={
-          <ProtectedRoute>
-            <Chat />
-          </ProtectedRoute>
-        }
-      />
+      <Route path="/" element={
+        <PrivateRoute>
+          <Home />
+        </PrivateRoute>
+      } />
+      
+      <Route path="/chat/*" element={
+        <PrivateRoute>
+          <Chat />
+        </PrivateRoute>
+      } />
 
-      {/* Fallback route */}
-      <Route path="*" element={<Navigate to="/" replace />} />
+      <Route path="*" element={<Navigate to="/" />} />
     </Routes>
   );
 };

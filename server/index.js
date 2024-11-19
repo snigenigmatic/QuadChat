@@ -11,6 +11,8 @@ const { auth } = require('./middleware/auth');
 const socketAuth = require('./middleware/socketAuth');
 const { apiLimiter } = require('./middleware/rateLimiter');
 const DirectMessage = require('./models/DirectMessage');
+const User = require('./models/User');
+const Message = require('./models/Message');
 const authRoutes = require('./routes/auth');
 const chatRoutes = require('./routes/chat');
 const directMessageRoutes = require('./routes/directMessages');
@@ -25,13 +27,6 @@ const io = new Server(server, {
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
     credentials: true
   }
-});
-
-// Request logging middleware - MOVED TO TOP
-app.use((req, res, next) => {
-  console.log(`${req.method} ${req.originalUrl}`);
-  console.log('Headers:', req.headers);
-  next();
 });
 
 // Basic middleware
@@ -83,12 +78,102 @@ io.use(socketAuth);
 // Connected users map
 const connectedUsers = new Map();
 
+// Socket.IO event handlers
 io.on('connection', async (socket) => {
   const userId = socket.user._id;
-  connectedUsers.set(userId, socket.id);
+  const user = await User.findById(userId).select('name email status');
   
-  // Notify others that user is online
-  socket.broadcast.emit('user_status', { userId, status: 'online' });
+  // Add user to connected users
+  connectedUsers.set(userId, {
+    socketId: socket.id,
+    user: {
+      id: userId,
+      name: user.name,
+      email: user.email
+    }
+  });
+
+  // Update user status to online
+  await User.findByIdAndUpdate(userId, { status: 'online' });
+
+  // Broadcast updated online users list
+  const onlineUsers = Array.from(connectedUsers.values()).map(({ user }) => user);
+  io.emit('onlineUsers', onlineUsers);
+
+  // Handle new messages
+  socket.on('sendMessage', async (messageData, callback) => {
+    try {
+      const { text, timestamp } = messageData;
+      
+      // Create and save message
+      const message = new Message({
+        content: text,
+        sender: userId,
+        room: 'general', // For now, we'll use a default room
+        messageType: 'text',
+        createdAt: timestamp
+      });
+      await message.save();
+
+      // Populate sender information
+      await message.populate('sender', 'name email');
+
+      // Broadcast message to all users
+      io.emit('message', {
+        id: message._id,
+        text: message.content,
+        sender: {
+          id: message.sender._id,
+          name: message.sender.name,
+          email: message.sender.email
+        },
+        timestamp: message.createdAt
+      });
+
+      // Send confirmation back to sender
+      callback({ 
+        status: 'success', 
+        data: {
+          id: message._id,
+          text: message.content,
+          sender: userId,
+          timestamp: message.createdAt
+        }
+      });
+    } catch (error) {
+      console.error('Error sending message:', error);
+      callback({ status: 'error', message: 'Failed to send message' });
+    }
+  });
+
+  // Handle get messages request
+  socket.on('getMessages', async (callback) => {
+    try {
+      // Fetch last 50 messages from the database
+      const messages = await Message.find({ room: 'general' })
+        .sort({ createdAt: -1 })
+        .limit(50)
+        .populate('sender', 'name email')
+        .lean();
+
+      // Format messages
+      const formattedMessages = messages.reverse().map(msg => ({
+        id: msg._id,
+        text: msg.content,
+        sender: {
+          id: msg.sender._id,
+          name: msg.sender.name,
+          email: msg.sender.email
+        },
+        timestamp: msg.createdAt
+      }));
+
+      callback({ status: 'success', data: formattedMessages });
+    } catch (error) {
+      console.error('Error fetching messages:', error);
+      callback({ status: 'error', message: 'Failed to fetch messages' });
+    }
+  });
 
   // Handle direct messages
   socket.on('direct_message', async (data) => {
@@ -106,9 +191,9 @@ io.on('connection', async (socket) => {
       await message.save();
 
       // Send to recipient if online
-      const recipientSocketId = connectedUsers.get(recipientId);
-      if (recipientSocketId) {
-        io.to(recipientSocketId).emit('direct_message', {
+      const recipient = connectedUsers.get(recipientId);
+      if (recipient) {
+        io.to(recipient.socketId).emit('direct_message', {
           messageId: message._id,
           sender: userId,
           content,
@@ -126,9 +211,9 @@ io.on('connection', async (socket) => {
 
   // Handle typing status
   socket.on('typing', ({ recipientId, isTyping }) => {
-    const recipientSocketId = connectedUsers.get(recipientId);
-    if (recipientSocketId) {
-      io.to(recipientSocketId).emit('typing_status', {
+    const recipient = connectedUsers.get(recipientId);
+    if (recipient) {
+      io.to(recipient.socketId).emit('typing_status', {
         userId,
         isTyping
       });
@@ -136,9 +221,16 @@ io.on('connection', async (socket) => {
   });
 
   // Handle disconnection
-  socket.on('disconnect', () => {
+  socket.on('disconnect', async () => {
+    // Remove user from connected users
     connectedUsers.delete(userId);
-    socket.broadcast.emit('user_status', { userId, status: 'offline' });
+
+    // Update user status to offline
+    await User.findByIdAndUpdate(userId, { status: 'offline' });
+
+    // Broadcast updated online users list
+    const onlineUsers = Array.from(connectedUsers.values()).map(({ user }) => user);
+    io.emit('onlineUsers', onlineUsers);
   });
 });
 
@@ -161,6 +253,7 @@ app.use('*', (req, res) => {
   });
 });
 
+// Start server
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);

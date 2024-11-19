@@ -3,11 +3,11 @@ import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 
 const ProtectedRoute = ({ children }) => {
-  const { user, loading } = useAuth();
+  const { currentUser, loading } = useAuth();
   const location = useLocation();
 
   console.log('Protected Route - Current location:', location.pathname);
-  console.log('Protected Route - Auth state:', { user, loading });
+  console.log('Protected Route - Auth state:', { currentUser, loading });
 
   if (loading) {
     console.log('Protected Route - Still loading auth state');
@@ -18,7 +18,7 @@ const ProtectedRoute = ({ children }) => {
     );
   }
 
-  if (!user) {
+  if (!currentUser) {
     console.log('Protected Route - No user, redirecting to auth');
     return <Navigate to="/auth" state={{ from: location }} replace />;
   }

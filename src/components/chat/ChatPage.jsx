@@ -1,80 +1,204 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useSocket } from '../../contexts/SocketContext';
+import { useAuth } from '../../contexts/AuthContext';
 import ThemeToggle from '../shared/ThemeToggle';
 
 const ChatPage = () => {
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
+  const [onlineUsers, setOnlineUsers] = useState([]);
+  const { socket } = useSocket();
+  const { user } = useAuth();
   const navigate = useNavigate();
+  const messagesEndRef = useRef(null);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  useEffect(() => {
+    if (!socket) return;
+
+    // Listen for new messages
+    socket.on('message', (message) => {
+      setMessages(prevMessages => [...prevMessages, message]);
+    });
+
+    // Listen for online users updates
+    socket.on('onlineUsers', (users) => {
+      setOnlineUsers(users.filter(u => u.id !== user?.id));
+    });
+
+    // Load message history
+    socket.emit('getMessages', (response) => {
+      if (response.status === 'success') {
+        setMessages(response.data);
+      }
+    });
+
+    return () => {
+      socket.off('message');
+      socket.off('onlineUsers');
+    };
+  }, [socket, user]);
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
 
   const handleSendMessage = (e) => {
     e.preventDefault();
-    if (!newMessage.trim()) return;
+    if (!newMessage.trim() || !socket) return;
 
-    setMessages([...messages, { text: newMessage, sender: 'user', timestamp: new Date() }]);
+    const messageData = {
+      text: newMessage,
+      timestamp: new Date(),
+    };
+
+    socket.emit('sendMessage', messageData, (response) => {
+      if (response.status === 'error') {
+        console.error('Error sending message:', response.message);
+      }
+    });
+
     setNewMessage('');
   };
 
-  return (
-    <div className="flex flex-col h-screen bg-gray-50 dark:bg-gray-900">
-      {/* Header */}
-      <header className="bg-white dark:bg-gray-800 shadow-md px-4 py-3 fixed top-0 left-0 right-0 z-10">
-        <div className="max-w-7xl mx-auto flex justify-between items-center">
-          <div className="flex items-center space-x-4">
-            <h1 className="text-xl font-semibold text-gray-900 dark:text-white">QuadChat</h1>
-            <span className="text-sm px-2 py-1 bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-100 rounded-full">Online</span>
-          </div>
-          <div className="flex items-center space-x-4">
-            <ThemeToggle />
-            <button
-              onClick={() => navigate('/')}
-              className="text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors"
-            >
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-        </div>
-      </header>
+  const getInitials = (name) => {
+    return name
+      .split(' ')
+      .map(word => word[0])
+      .join('')
+      .toUpperCase()
+      .slice(0, 2);
+  };
 
-      {/* Chat Messages */}
-      <div className="flex-1 overflow-y-auto pt-16 pb-20">
-        <div className="max-w-7xl mx-auto px-4 py-6 space-y-6">
-          {messages.map((message, index) => (
-            <div
-              key={index}
-              className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'}`}
-            >
+  const formatTime = (timestamp) => {
+    const date = new Date(timestamp);
+    const now = new Date();
+    
+    if (date.toDateString() === now.toDateString()) {
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+    
+    return date.toLocaleDateString([], { 
+      month: 'short', 
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  const isOwnMessage = (senderId) => senderId === user?.id;
+
+  return (
+    <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
+      {/* Sidebar - Online Users */}
+      <div className="w-64 bg-white dark:bg-gray-800 border-r dark:border-gray-700 hidden md:block">
+        <div className="p-4">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Online Users</h2>
+          <div className="space-y-2">
+            {onlineUsers.map((onlineUser) => (
               <div
-                className={`max-w-sm lg:max-w-2xl px-4 py-3 rounded-lg ${
-                  message.sender === 'user'
-                    ? 'bg-blue-600 text-white ml-4'
-                    : 'bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white mr-4'
-                }`}
+                key={onlineUser.id}
+                className="flex items-center space-x-3 p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
               >
-                <p className="text-sm sm:text-base">{message.text}</p>
-                <span className="text-xs opacity-75 mt-1 block">
-                  {message.timestamp.toLocaleTimeString()}
-                </span>
+                <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-white font-medium">
+                  {getInitials(onlineUser.name)}
+                </div>
+                <div>
+                  <span className="text-sm font-medium text-gray-900 dark:text-white">{onlineUser.name}</span>
+                  <div className="flex items-center space-x-1">
+                    <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                    <span className="text-xs text-gray-500 dark:text-gray-400">Online</span>
+                  </div>
+                </div>
               </div>
-            </div>
-          ))}
-          {messages.length === 0 && (
-            <div className="text-center text-gray-500 dark:text-gray-400 py-8">
-              <svg className="w-16 h-16 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-              </svg>
-              <p className="text-lg">No messages yet. Start the conversation!</p>
-            </div>
-          )}
+            ))}
+          </div>
         </div>
       </div>
 
-      {/* Message Input */}
-      <div className="bg-white dark:bg-gray-800 border-t dark:border-gray-700 fixed bottom-0 left-0 right-0">
-        <div className="max-w-7xl mx-auto px-4 py-4">
-          <form onSubmit={handleSendMessage} className="flex space-x-4">
+      {/* Main Chat Area */}
+      <div className="flex-1 flex flex-col">
+        {/* Header */}
+        <header className="bg-white dark:bg-gray-800 shadow-md px-4 py-3">
+          <div className="flex justify-between items-center">
+            <div className="flex items-center space-x-4">
+              <h1 className="text-xl font-semibold text-gray-900 dark:text-white">QuadChat</h1>
+              <span className="text-sm px-2 py-1 bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-100 rounded-full">
+                {onlineUsers.length + 1} Online
+              </span>
+            </div>
+            <div className="flex items-center space-x-4">
+              <ThemeToggle />
+              <button
+                onClick={() => navigate('/')}
+                className="text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </header>
+
+        {/* Chat Messages */}
+        <div className="flex-1 overflow-y-auto p-4">
+          <div className="max-w-3xl mx-auto space-y-4">
+            {messages.map((message, index) => {
+              const isOwn = isOwnMessage(message.sender.id);
+              const showAvatar = !isOwn && (!messages[index - 1] || messages[index - 1].sender.id !== message.sender.id);
+
+              return (
+                <div
+                  key={message.id}
+                  className={`flex items-end space-x-2 ${isOwn ? 'justify-end' : 'justify-start'}`}
+                >
+                  {!isOwn && showAvatar && (
+                    <div className="w-8 h-8 rounded-full bg-blue-500 flex-shrink-0 flex items-center justify-center text-white font-medium">
+                      {getInitials(message.sender.name)}
+                    </div>
+                  )}
+                  <div className={`flex flex-col ${!isOwn && !showAvatar ? 'ml-10' : ''}`}>
+                    {showAvatar && (
+                      <span className="text-xs text-gray-500 dark:text-gray-400 mb-1 ml-1">
+                        {message.sender.name}
+                      </span>
+                    )}
+                    <div
+                      className={`max-w-sm lg:max-w-2xl px-4 py-2 rounded-lg ${
+                        isOwn
+                          ? 'bg-blue-600 text-white rounded-br-none'
+                          : 'bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white rounded-bl-none'
+                      }`}
+                    >
+                      <p className="text-sm sm:text-base whitespace-pre-wrap break-words">{message.text}</p>
+                    </div>
+                    <span className={`text-xs text-gray-500 dark:text-gray-400 mt-1 ${isOwn ? 'text-right' : 'text-left'}`}>
+                      {formatTime(message.timestamp)}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+            <div ref={messagesEndRef} />
+            {messages.length === 0 && (
+              <div className="text-center text-gray-500 dark:text-gray-400 py-8">
+                <svg className="w-16 h-16 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                </svg>
+                <p className="text-lg">No messages yet. Start the conversation!</p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Message Input */}
+        <div className="bg-white dark:bg-gray-800 border-t dark:border-gray-700 p-4">
+          <form onSubmit={handleSendMessage} className="max-w-3xl mx-auto flex space-x-4">
             <input
               type="text"
               value={newMessage}
