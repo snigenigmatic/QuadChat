@@ -4,6 +4,9 @@ import { SocketProvider } from './contexts/SocketContext';
 import Home from './pages/Home';
 import Auth from './pages/Auth';
 import Chat from './pages/Chat';
+import AboutUs from './pages/AboutUs';
+import ContactUs from './pages/ContactUs';
+import NotFound from './pages/NotFound';
 import { useAuth } from './contexts/AuthContext';
 
 const PrivateRoute = ({ children }) => {
@@ -35,6 +38,8 @@ const AppRoutes = () => {
     <Routes>
       <Route path="/" element={<Home />} />
       <Route path="/auth" element={currentUser ? <Navigate to="/chat" replace /> : <Auth />} />
+      <Route path="/about" element={<AboutUs />} />
+      <Route path="/contact" element={<ContactUs />} />
       <Route
         path="/chat"
         element={
@@ -43,6 +48,7 @@ const AppRoutes = () => {
           </PrivateRoute>
         }
       />
+      <Route path="*" element={<NotFound />} />
     </Routes>
   );
 };
