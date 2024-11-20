@@ -146,7 +146,7 @@ const Home = () => {
                   <h3 className="text-xl font-semibold text-gray-900 dark:text-white">Study Groups</h3>
                 </div>
                 <p className="text-gray-600 dark:text-gray-300 leading-relaxed">
-                  Create and join study groups for better collaboration. Learn together, grow together.
+                  Create and join study groups for better collaboration . Learn together, grow together.
                 </p>
               </div>
             </div>
